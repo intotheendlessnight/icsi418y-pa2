@@ -18,7 +18,10 @@ const users = db.collection("users");
 const projects = db.collection("projects");
 const memberships = db.collection("projectMemberships");
 const statuses = ["Planning", "Active", "Completed"];
-
+// stories and whatnot
+const stories = db.collection("userStories");
+const priorities = ["High", "Medium", "Low"];
+const storyStatuses = ["To Do", "In Progress", "Done"];
 // main logic for signup
 app.post("/signup", async (req, res) => {
   const { f_name, l_name, username, password } = req.body;
@@ -212,11 +215,200 @@ app.delete("/projects/:id/members/:userId", async (req, res) => {
     if (project.project_lead_id.equals(userId)) {
       return res.status(400).json({ message: "The project lead cannot be removed" });
     }
+
+    // if member has storys assigned, then should be able to block removal
+    const assignedStory = await stories.findOne({ project_id: projectId, assigned_user_id: userId });
+
+    if (assignedStory) {
+      // will return 409 if member still has story assigned + will disregard status
+      return res.status(409).json({
+        message: "Error! Story must be deleted, or changed somewhere else before removal.."
+      })
+    }
+
     const result = await memberships.deleteOne({ project_id: projectId, user_id: userId });
     if (result.deletedCount === 0) {
       return res.status(404).json({ message: "User is not a member of this project" });
     }
     res.status(200).json({ message: "Member removed successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server error!!" });
+  }
+});
+
+// story routing
+function storyError(title, description, priority) {
+  if (typeof title !== "string" || title.trim() === "") {
+    return "Where is your title?";
+  }
+  if (typeof description !== "string" || description.trim() === "") {
+    return "Description missing";
+  }
+  if (!priorities.includes(priority)) {
+    return "Priority must be High, Medium, or Low";
+  }
+
+
+  return null;
+}
+
+// null just means we have unassigned here, validation for member/user existence
+async function checkAssignee(projectId, value) {
+  if (value === null) {
+    return { id: null };
+  }
+  if (typeof value !== "string" || !ObjectId.isValid(value)) {
+    return { status: 400, message: "Assigned user must be a valid user id or null" };
+  }
+  const userId = new ObjectId(value);
+  const user = await users.findOne({ _id: userId });
+  if (!user) {
+    return { status: 404, message: "Assigned user not found" };
+  }
+  const membership = await memberships.findOne({ project_id: projectId, user_id: userId });
+  if (!membership) {
+    return { status: 400, message: "Assigned user is not a member of this project" };
+  }
+  return { id: userId };
+}
+
+// id validation, same as projects/members
+app.get("/projects/:id/stories", async (req, res) => {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ message: "Invalid project id" });
+  }
+  try {
+    const projectId = new ObjectId(req.params.id);
+    const project = await projects.findOne({ _id: projectId });
+
+
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    const storyList = await stories.find({ project_id: projectId }).toArray();
+    const userList = await users.find().toArray();
+    const result = storyList.map((story) => {
+      let assignedTo = "Unassigned";
+      if (story.assigned_user_id) {
+        const user = userList.find((u) => u._id.equals(story.assigned_user_id));
+        // will work same as project property copying, and assign user idd
+        assignedTo = user ? user.f_name + " " + user.l_name + " (" + user.username + ")" : "Unknown";
+      }
+      
+      return { ...story, assigned_to: assignedTo };
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server error!!" });
+  }
+});
+
+
+app.post("/projects/:id/stories", async (req, res) => {
+  const { title, description, priority, assigned_user_id } = req.body;
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ message: "Invalid project id" });
+  }
+
+
+  const problem = storyError(title, description, priority);
+  if (problem) {
+    return res.status(400).json({ message: problem });
+  }
+  try {
+    const projectId = new ObjectId(req.params.id);
+    const project = await projects.findOne({ _id: projectId });
+    if (!project) {
+      return res.status(404).json({ message: "Project missing" });
+    }
+
+
+    const assignee = await checkAssignee(projectId, assigned_user_id);
+    if (assignee.message) {
+      return res.status(assignee.status).json({ message: assignee.message });
+    }
+    // server sets project_id and status
+    
+    await stories.insertOne({
+      project_id: projectId,
+      title: title.trim(),
+      description: description.trim(),
+      priority: priority,
+      status: "To Do",
+      assigned_user_id: assignee.id
+    });
+    res.status(201).json({ message: "Story created!" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server error!!" });
+  }
+});
+
+app.put("/projects/:id/stories/:storyId", async (req, res) => 
+  {
+  const { title, description, priority, status, assigned_user_id } = req.body;
+  if (!ObjectId.isValid(req.params.id) || !ObjectId.isValid(req.params.storyId)) {
+    return res.status(400).json({ message: "Invalid project or invalid story id.." });
+  }
+  const problem = storyError(title, description, priority);
+  if (problem) {
+    return res.status(400).json({ message: problem });
+  }
+  if (!storyStatuses.includes(status)) {
+    return res.status(400).json({ message: "Status wrong, options are: To Do, In Progress, or Done" });
+  }
+  try {
+    const projectId = new ObjectId(req.params.id);
+    const storyId = new ObjectId(req.params.storyId);
+    const project = await projects.findOne({ _id: projectId });
+    if (!project) {
+      return res.status(404).json({ message: "Project missing" });
+    }
+    const assignee = await checkAssignee(projectId, assigned_user_id);
+    if (assignee.message) {
+      return res.status(assignee.status).json({ message: assignee.message });
+    }
+
+    // story + project together, project_id is never in there when updated
+    const result = await stories.updateOne(
+      { _id: storyId, project_id: projectId }, { $set: {
+          title: title.trim(),
+          description: description.trim(),
+          priority: priority,
+          status: status,
+          assigned_user_id: assignee.id
+        }
+      }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Story not found in this project" });
+    }
+    res.status(200).json({ message: "Story updated" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server error!!" });
+  }
+});
+app.delete("/projects/:id/stories/:storyId", async (req, res) => {
+  if (!ObjectId.isValid(req.params.id) || !ObjectId.isValid(req.params.storyId)) {
+    return res.status(400).json({ message: "Invalid project or story id" });
+  }
+  try {
+    const projectId = new ObjectId(req.params.id);
+    const storyId = new ObjectId(req.params.storyId);
+    const project = await projects.findOne({ _id: projectId });
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    const result = await stories.deleteOne({ _id: storyId, project_id: projectId });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Story not found in this project" });
+    }
+
+
+    res.status(200).json({ message: "Story deleted successfully" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Internal Server error!!" });
