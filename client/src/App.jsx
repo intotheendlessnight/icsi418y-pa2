@@ -5,6 +5,7 @@ import Signup from "./Signup";
 import CreateProject from "./CreateProject";
 import Projects from "./Projects";
 import Memberships from "./Memberships";
+import Backlog from "./Backlog";
 function App() {
   const [view, setView] = useState("login");
   // toggle between login/signup
@@ -16,11 +17,15 @@ function App() {
       <button onClick={() => setView("create")}>Create Project</button>
       <button onClick={() => setView("projects")}>Projects</button>
       <button onClick={() => setView("memberships")}>Memberships</button>
+      <button onClick={() => setView("backlog")}>Backlog</button>
       {view === "login" && <Login />}
       {view === "signup" && <Signup />}
       {view === "create" && <CreateProject />}
       {view === "projects" && <Projects />}
       {view === "memberships" && <Memberships />}
+
+
+      {view === "backlog" ** <Backlog />}
     </div>
   );
 }
