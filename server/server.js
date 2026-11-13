@@ -295,7 +295,7 @@ app.get("/projects/:id/stories", async (req, res) => {
         // will work same as project property copying, and assign user idd
         assignedTo = user ? user.f_name + " " + user.l_name + " (" + user.username + ")" : "Unknown";
       }
-      
+
       return { ...story, assigned_to: assignedTo };
     });
     res.status(200).json(result);
