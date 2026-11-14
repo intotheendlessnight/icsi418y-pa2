@@ -25,7 +25,7 @@ function App() {
       {view === "memberships" && <Memberships />}
 
 
-      {view === "backlog" ** <Backlog />}
+      {view === "backlog" && <Backlog />}
     </div>
   );
 }

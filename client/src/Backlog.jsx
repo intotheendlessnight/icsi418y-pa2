@@ -8,6 +8,16 @@ const emptyStory = {
   status: "To Do",
   assigned_user_id: null
 };
+const unexpectedMessage = "debug.";
+
+// reads the json body of response, gives back null instead of permacrashing
+async function readJson(response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
 
 function Backlog() {
 
@@ -49,12 +59,12 @@ function Backlog() {
           return;
         }
 
-        if (memberResponse.ok && storyResponse.ok) {
+        if (memberResponse.ok && storyResponse.ok && memberData && storyData) {
           setMembers(memberData.members);
           setStories(storyData);
           setLoaded(true);
         } else {
-          setMessage(memberData.message || storyData.message);
+          setMessage((memberData && memberData.message) || (storyData && storyData.message) || unexpectedMessage);
         }
       } catch (error) {
         if (!ignore) {
@@ -73,12 +83,12 @@ function Backlog() {
   async function loadProjects() {
     try {
       const response = await fetch("http://localhost:9000/projects");
-      const data = await response.json();
+      const data = await readJson(response);
 
-      if (response.ok) {
+      if (response.ok && data) {
         setProjects(data);
       } else {
-        setMessage(data.message);
+        setMessage((data && data.message) || unexpectedMessage);
       }
     } catch (error) {
       setMessage("Could not connect to the server");
@@ -97,8 +107,9 @@ function Backlog() {
   async function sendRequest(url, options) {
     try {
       const response = await fetch(url, options);
-      const data = await response.json();
-      setMessage(data.message);
+      const data = await readJson(response);
+      setMessage((data && data.message) || unexpectedMessage);
+
       return response.ok;
     } catch (error) {
       setMessage("Could not connect to the server");
@@ -160,7 +171,7 @@ function Backlog() {
   // then open story, clear any old message
   return (
     <div>
-      <h2>Project BACKLOG.</h2>
+      <h2>Project Backlog.</h2>
       <div>
         <label>Project:</label>
         <select value={projectId} onChange={handleProjectChange}>
